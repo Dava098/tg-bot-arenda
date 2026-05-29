@@ -255,6 +255,37 @@ async def _notify_admin(booking_id: str, data: dict, comment: str) -> None:
         logger.error("❌ Не удалось отправить уведомление админу: %s", e)
 
 
+async def _notify_admin_cancel(booking: dict, cancelled_by_username: str) -> None:
+    import html as _html
+    if not ADMIN_BOT_TOKEN or ADMIN_BOT_TOKEN == "ADMIN_BOT_TOKEN_HERE":
+        logger.warning("⚠️ ADMIN_BOT_TOKEN не задан — уведомление об отмене не отправлено")
+        return
+    if not ADMIN_CHAT_ID or ADMIN_CHAT_ID == "ADMIN_CHAT_ID_HERE":
+        logger.warning("⚠️ ADMIN_CHAT_ID не задан — уведомление об отмене не отправлено")
+        return
+    try:
+        admin_bot = Bot(token=ADMIN_BOT_TOKEN)
+        car_em = CAR_EMOJI.get(booking["car_id"], "🚗")
+        text = (
+            f"❌ <b>Бронь #{_html.escape(str(booking['id']))} ОТМЕНЕНА клиентом</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📍 Город: <b>{_html.escape(str(booking.get('city', '—')))}</b>\n"
+            f"{car_em} Автомобиль: <b>{_html.escape(str(booking['car_name']))}</b>\n"
+            f"⏱ Время: <b>{_html.escape(str(booking['rental_time']))}</b>\n"
+            f"📅 Дата: <b>{_html.escape(str(booking['rental_date']))}</b>\n"
+            f"👤 Клиент: <b>{_html.escape(str(booking['client_name']))}</b>\n"
+            f"📱 Телефон: <b>{_html.escape(str(booking['phone']))}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 Сумма: <b>{_fmt(booking['total_price'])} сум</b>\n"
+            f"👤 @{_html.escape(str(cancelled_by_username or '—'))}"
+        )
+        await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="HTML")
+        await admin_bot.session.close()
+        logger.info("✅ Уведомление об отмене брони #%s отправлено в админ-чат", booking["id"])
+    except Exception as e:
+        logger.error("❌ Не удалось отправить уведомление об отмене: %s", e)
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -376,6 +407,7 @@ async def hist_cancel(cb: CallbackQuery, state: FSMContext) -> None:
             _booking_card(b, lang), parse_mode="Markdown",
             reply_markup=_detail_keyboard(bid, b["status"], page, lang),
         )
+        await _notify_admin_cancel(b, cb.from_user.username)
     else:
         await cb.answer(t(lang, "cancel_fail"), show_alert=True)
 
