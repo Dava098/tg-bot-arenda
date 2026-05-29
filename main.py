@@ -61,7 +61,8 @@ class Rent(StatesGroup):
     entering_name  = State()   # 7. Имя
     entering_phone = State()   # 8. Телефон
     entering_comment = State() # 9. Комментарий
-    entering_cancel_reason = State()  # 10. Причина отмены брони
+    entering_location = State()      # 10. Геолокация
+    entering_cancel_reason = State()  # 11. Причина отмены брони
 
 
 router = Router()
@@ -250,6 +251,30 @@ async def _notify_admin(booking_id: str, data: dict, comment: str) -> None:
             f"👤 @{_html.escape(str(data.get('username') or '—'))}"
         )
         await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="HTML")
+
+        # Геолокация клиента — отдельным сообщением с подписью
+        geo_lat = data.get("geo_lat")
+        geo_lon = data.get("geo_lon")
+        if geo_lat and geo_lon:
+            await admin_bot.send_location(
+                chat_id=ADMIN_CHAT_ID,
+                latitude=geo_lat,
+                longitude=geo_lon,
+            )
+            await admin_bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=(
+                    f"📍 Геолокация клиента\n"
+                    f"🔖 Бронь: <b>#{_html.escape(str(booking_id))}</b>\n"
+                    f"👤 {_html.escape(str(data['client_name']))} — "
+                    f"📱 {_html.escape(str(data['phone']))}\n"
+                    f"{car_em} {_html.escape(str(data['car_name']))} — "
+                    f"⏱ {_html.escape(str(data['rental_time']))} — "
+                    f"📅 {_html.escape(str(data['rental_date']))}"
+                ),
+                parse_mode="HTML",
+            )
+
         await admin_bot.session.close()
         logger.info("✅ Уведомление о брони #%s отправлено в админ-чат", booking_id)
     except Exception as e:
@@ -715,7 +740,51 @@ async def comment_entered(message: Message, state: FSMContext) -> None:
     lang    = data.get("lang", "ru")
     skip_tx = t(lang, "skip_btn")
     comment = "" if message.text.strip() == skip_tx else message.text.strip()
-    await _finalize(message, state, comment)
+    await state.update_data(comment=comment)
+    await _ask_location(message, state)
+
+
+async def _ask_location(message: Message, state: FSMContext) -> None:
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+
+    loc_texts = {
+        "ru": ("📍 Для подтверждения брони отправьте вашу геолокацию", "📍 Отправить геолокацию"),
+        "uz": ("📍 Bronni tasdiqlash uchun joylashuvingizni yuboring", "📍 Joylashuvni yuborish"),
+        "en": ("📍 To confirm your booking, please share your location", "📍 Share location"),
+    }
+    ask_text, btn_loc = loc_texts.get(lang, loc_texts["ru"])
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=btn_loc, request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+    await message.answer(ask_text, reply_markup=kb)
+    await state.set_state(Rent.entering_location)
+
+
+@router.message(Rent.entering_location, F.location)
+async def location_received(message: Message, state: FSMContext) -> None:
+    await state.update_data(
+        geo_lat=message.location.latitude,
+        geo_lon=message.location.longitude,
+    )
+    data = await state.get_data()
+    await _finalize(message, state, data.get("comment", ""))
+
+
+@router.message(Rent.entering_location, F.text)
+async def location_text_fallback(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    remind = {
+        "ru": "📍 Пожалуйста, нажмите кнопку ниже, чтобы отправить геолокацию",
+        "uz": "📍 Iltimos, joylashuvni yuborish uchun quyidagi tugmani bosing",
+        "en": "📍 Please tap the button below to share your location",
+    }
+    await message.answer(remind.get(lang, remind["ru"]))
 
 
 async def _finalize(message: Message, state: FSMContext, comment: str) -> None:
@@ -736,6 +805,8 @@ async def _finalize(message: Message, state: FSMContext, comment: str) -> None:
         "phone":        data["phone"],
         "comment":      comment,
         "total_price":  data["total_price"],
+        "geo_lat":      data.get("geo_lat"),
+        "geo_lon":      data.get("geo_lon"),
     }
 
     booking_id   = save_booking(booking_data)
