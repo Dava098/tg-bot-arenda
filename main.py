@@ -561,7 +561,7 @@ async def cal_ignore(cb: CallbackQuery) -> None:
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("cal:prev:"), Rent.choosing_date)
+@router.callback_query(F.data.startswith("cal:prev:"), Rent.choosing_date, Rent.entering_name)
 async def cal_prev(cb: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang", "ru")
@@ -579,7 +579,7 @@ async def cal_prev(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("cal:next:"), Rent.choosing_date)
+@router.callback_query(F.data.startswith("cal:next:"), Rent.choosing_date, Rent.entering_name)
 async def cal_next(cb: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang", "ru")
