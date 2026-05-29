@@ -593,6 +593,12 @@ async def cal_next(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
 
 
+@router.callback_query(F.data.startswith("cal:day:"), Rent.entering_name)
+async def date_reselected(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Rent.choosing_date)
+    await date_selected(cb, state)
+
+
 @router.callback_query(F.data.startswith("cal:day:"), Rent.choosing_date)
 async def date_selected(cb: CallbackQuery, state: FSMContext) -> None:
     data      = await state.get_data()
