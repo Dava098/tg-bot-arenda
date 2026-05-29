@@ -61,6 +61,7 @@ class Rent(StatesGroup):
     entering_name  = State()   # 7. Имя
     entering_phone = State()   # 8. Телефон
     entering_comment = State() # 9. Комментарий
+    entering_cancel_reason = State()  # 10. Причина отмены брони
 
 
 router = Router()
@@ -255,7 +256,7 @@ async def _notify_admin(booking_id: str, data: dict, comment: str) -> None:
         logger.error("❌ Не удалось отправить уведомление админу: %s", e)
 
 
-async def _notify_admin_cancel(booking: dict, cancelled_by_username: str) -> None:
+async def _notify_admin_cancel(booking: dict, cancelled_by_username: str, reason: str = "") -> None:
     import html as _html
     if not ADMIN_BOT_TOKEN or ADMIN_BOT_TOKEN == "ADMIN_BOT_TOKEN_HERE":
         logger.warning("⚠️ ADMIN_BOT_TOKEN не задан — уведомление об отмене не отправлено")
@@ -266,16 +267,17 @@ async def _notify_admin_cancel(booking: dict, cancelled_by_username: str) -> Non
     try:
         admin_bot = Bot(token=ADMIN_BOT_TOKEN)
         car_em = CAR_EMOJI.get(booking["car_id"], "🚗")
+        reason_line = f"❓ Причина: <i>{_html.escape(reason)}</i>\n" if reason else ""
         text = (
             f"❌ <b>Бронь #{_html.escape(str(booking['id']))} ОТМЕНЕНА клиентом</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📍 Город: <b>{_html.escape(str(booking.get('city', '—')))}</b>\n"
             f"{car_em} Автомобиль: <b>{_html.escape(str(booking['car_name']))}</b>\n"
-            f"⏱ Время: <b>{_html.escape(str(booking['rental_time']))}</b>\n"
+            f"⏱ Аренда: <b>{_html.escape(str(booking['rental_time']))}</b>\n"
             f"📅 Дата: <b>{_html.escape(str(booking['rental_date']))}</b>\n"
             f"👤 Клиент: <b>{_html.escape(str(booking['client_name']))}</b>\n"
             f"📱 Телефон: <b>{_html.escape(str(booking['phone']))}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{reason_line}"
             f"💰 Сумма: <b>{_fmt(booking['total_price'])} сум</b>\n"
             f"👤 @{_html.escape(str(cancelled_by_username or '—'))}"
         )
@@ -400,6 +402,7 @@ async def hist_cancel(cb: CallbackQuery, state: FSMContext) -> None:
     lang = data.get("lang", "ru")
     parts = cb.data.split(":")
     bid, page = parts[2], int(parts[3])
+
     if cancel_booking(bid, cb.from_user.id):
         await cb.answer(t(lang, "cancelled_ok"), show_alert=True)
         b = get_booking(bid)
@@ -407,7 +410,12 @@ async def hist_cancel(cb: CallbackQuery, state: FSMContext) -> None:
             _booking_card(b, lang), parse_mode="Markdown",
             reply_markup=_detail_keyboard(bid, b["status"], page, lang),
         )
-        await _notify_admin_cancel(b, cb.from_user.username)
+
+        # Сохраняем данные брони в state — уведомление отправим ПОСЛЕ получения причины
+        await state.update_data(
+            cancelled_booking_id=bid,
+            cancelled_page=page,
+        )
 
         cancel_messages = {
             "ru": "Извините за беспокойство. В чем проблема, из-за которой Вы отменили бронь? Буду ждать ответа.",
@@ -416,8 +424,29 @@ async def hist_cancel(cb: CallbackQuery, state: FSMContext) -> None:
         }
         msg = cancel_messages.get(lang, cancel_messages["ru"])
         await cb.message.answer(msg)
+        await state.set_state(Rent.entering_cancel_reason)
     else:
         await cb.answer(t(lang, "cancel_fail"), show_alert=True)
+
+
+@router.message(Rent.entering_cancel_reason, F.text)
+async def cancel_reason_entered(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    reason = message.text.strip()
+    bid = data.get("cancelled_booking_id", "")
+
+    b = get_booking(bid) if bid else None
+    if b:
+        await _notify_admin_cancel(b, message.from_user.username, reason)
+
+    thank_messages = {
+        "ru": "Спасибо за ответ! Мы учтём это и постараемся стать лучше.",
+        "uz": "Javobingiz uchun rahmat! Buni hisobga olamiz va yaxshilanishga harakat qilamiz.",
+        "en": "Thank you for your feedback! We will take it into account.",
+    }
+    await message.answer(thank_messages.get(lang, thank_messages["ru"]))
+    await state.clear()
 
 
 @router.callback_query(F.data.startswith("lang:"), Rent.choosing_lang)
