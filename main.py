@@ -6,7 +6,7 @@ from datetime import date
 import aiohttp
 
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -408,6 +408,14 @@ async def hist_cancel(cb: CallbackQuery, state: FSMContext) -> None:
             reply_markup=_detail_keyboard(bid, b["status"], page, lang),
         )
         await _notify_admin_cancel(b, cb.from_user.username)
+
+        cancel_messages = {
+            "ru": "Извините за беспокойство. В чем проблема, из-за которой Вы отменили бронь? Буду ждать ответа.",
+            "uz": "Bezovta qilganim uchun uzr. Bronni bekor qilishingizga sabab bo'lgan muammo nima? Javobingizni kutaman.",
+            "en": "Sorry for the inconvenience. What was the issue that caused you to cancel your booking? I will be waiting for your answer.",
+        }
+        msg = cancel_messages.get(lang, cancel_messages["ru"])
+        await cb.message.answer(msg)
     else:
         await cb.answer(t(lang, "cancel_fail"), show_alert=True)
 
@@ -561,7 +569,7 @@ async def cal_ignore(cb: CallbackQuery) -> None:
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("cal:prev:"), Rent.choosing_date, Rent.entering_name)
+@router.callback_query(F.data.startswith("cal:prev:"), StateFilter(Rent.choosing_date, Rent.entering_name))
 async def cal_prev(cb: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang", "ru")
@@ -579,7 +587,7 @@ async def cal_prev(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("cal:next:"), Rent.choosing_date, Rent.entering_name)
+@router.callback_query(F.data.startswith("cal:next:"), StateFilter(Rent.choosing_date, Rent.entering_name))
 async def cal_next(cb: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang", "ru")
