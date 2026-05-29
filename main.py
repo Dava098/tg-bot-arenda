@@ -692,7 +692,9 @@ async def phone_from_text(message: Message, state: FSMContext) -> None:
     if not digits.isdigit() or len(digits) < 9:
         await message.answer(t(lang, "invalid_phone"), parse_mode="Markdown")
         return
-    await _process_phone(message, state, raw)
+    # Если номер введён без + — добавляем его
+    phone = raw if raw.startswith("+") else "+" + raw
+    await _process_phone(message, state, phone)
 
 
 async def _process_phone(message: Message, state: FSMContext, phone: str) -> None:
