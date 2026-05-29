@@ -601,13 +601,22 @@ async def date_selected(cb: CallbackQuery, state: FSMContext) -> None:
     selected  = date(int(parts[2]), int(parts[3]), int(parts[4]))
     formatted = selected.strftime("%d.%m.%Y")
 
+    # Удаляем предыдущее сообщение "введи имя", если дату меняют повторно
+    prev_msg_id = data.get("date_prompt_msg_id")
+    if prev_msg_id:
+        try:
+            await cb.bot.delete_message(chat_id=cb.message.chat.id, message_id=prev_msg_id)
+        except Exception:
+            pass
+
     await state.update_data(rental_date=formatted)
     await cb.answer(f"📅 {formatted}")
-    await cb.message.answer(
+    sent = await cb.message.answer(
         t(lang, "enter_name", date=formatted),
         parse_mode="Markdown",
         reply_markup=get_cancel_keyboard(lang),
     )
+    await state.update_data(date_prompt_msg_id=sent.message_id)
     await state.set_state(Rent.entering_name)
 
 @router.message(Rent.entering_name, F.text)
